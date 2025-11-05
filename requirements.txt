@@ -1,0 +1,17 @@
+pandas>=2.0.0
+numpy>=1.25.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+statsmodels>=0.14.0
+plotly>=5.20.0
+jinja2>=3.1.0
+typer[all]>=0.12.0
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+snowflake-connector-python>=3.7.0
+cryptography>=41.0.0
+pytest>=8.1.0
+ruff>=0.4.0
+pre-commit>=3.7.0
+mcp @ git+https://github.com/modelcontextprotocol/python-sdk.git
+

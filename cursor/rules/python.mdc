@@ -1,0 +1,73 @@
+---
+globs: *.py
+---
+# Python Code Conventions for Discovery
+
+Follow these conventions for all Python code in this repo.
+
+## Typing and interfaces
+- Use explicit type hints for all public functions and class methods.
+- Prefer `Protocol` for connector interfaces (see [discovery/connectors/base.py](mdc:discovery/connectors/base.py)).
+- Avoid `Any` where possible. Use precise types like `Dict[str, float]`.
+
+## Functions and control flow
+- Use early returns to reduce nesting; avoid deep nesting beyond 2–3 levels.
+- Only use try/except when an exception is reasonably expected; do not blanket-catch.
+- Keep functions cohesive; small, single-responsibility helpers are encouraged.
+
+## CLI
+- Use Typer for CLI ([discovery/cli/main.py](mdc:discovery/cli/main.py)).
+- Commands should be verbs; options must have clear help text.
+- Print via `typer.secho` (not `print`) for user-facing messages.
+
+## Pandas/Numpy
+- Prefer vectorized operations and avoid per-row loops.
+- Use `errors="coerce"` when converting to numeric to handle mixed types safely.
+- When sampling, set `random_state` for reproducibility.
+- Limit DataFrame copies; use `.copy()` explicitly when needed to avoid chained assignment.
+
+## Statistics and tests
+- Keep computation JSON-serializable (convert DataFrames/Series to dicts as needed).
+- Clearly separate computation from rendering (see [discovery/analytics/tests.py](mdc:discovery/analytics/tests.py)).
+
+## Insights
+- Insights must include: `id`, `title`, `severity`, `score`, `rationale`, and `affectedColumns` (see [discovery/insights/ranker.py](mdc:discovery/insights/ranker.py)).
+
+## Rendering
+- Dashboards must render offline; inline Plotly JS for top chart, reuse for others without duplication (see [discovery/render/dashboard.py](mdc:discovery/render/dashboard.py)).
+- Keep styles scoped and lightweight.
+
+## I/O and outputs
+- All artifacts belong under `outputs/<source>/...` (profiles JSON, tests JSON, insights MD, dashboard HTML).
+- Use UTF-8 for text files and indent JSON for readability.
+
+## Naming and comments
+- Use descriptive names (no 1–2 char vars). Functions are verbs; variables are nouns.
+- Docstrings should explain the why and any non-obvious behavior.
+
+## Documentation (docstrings and inline comments)
+- Every public module, class, and function MUST include a docstring that states purpose, key behavior, and non-obvious constraints.
+- Prefer Google-style sections when useful: `Args`, `Returns`, `Raises`, and `Notes`/`Examples`.
+- Keep inline comments brief; explain intent/assumptions just below complex logic. Do not comment the obvious.
+- Minimal docstring template:
+  ```python
+  def fn(arg: int) -> float:
+      """Short purpose line.
+
+      Args:
+          arg: What it represents.
+
+      Returns:
+          What is returned and units/scale if relevant.
+
+      Raises:
+          ValueError: When input is invalid.
+      """
+  ```
+
+## Env and config
+- Read env via `python-dotenv` when needed; do not hardcode secrets.
+
+## Linting and tests
+- Run `ruff` and `pytest` locally; keep modules importable without side effects.
+

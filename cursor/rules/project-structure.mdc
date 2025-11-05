@@ -1,0 +1,27 @@
+---
+alwaysApply: true
+---
+# Project Structure Guide
+
+Use this as a quick reference for where to add new functionality.
+
+- CLI commands → [discovery/cli/main.py](mdc:discovery/cli/main.py)
+- Connectors → [discovery/connectors/](mdc:discovery/connectors/)
+  - Protocol → [base.py](mdc:discovery/connectors/base.py)
+  - CSV → [csv.py](mdc:discovery/connectors/csv.py)
+- Agent orchestration → [discovery/agent/orchestrator.py](mdc:discovery/agent/orchestrator.py)
+- Profiling pipeline → [discovery/pipeline/profiler.py](mdc:discovery/pipeline/profiler.py)
+- Analytics/stat tests → [discovery/analytics/tests.py](mdc:discovery/analytics/tests.py)
+- Insights generation → [discovery/insights/ranker.py](mdc:discovery/insights/ranker.py)
+- Dashboard rendering → [discovery/render/dashboard.py](mdc:discovery/render/dashboard.py)
+- Outputs and registry → [discovery/io/](mdc:discovery/io/)
+  - Registry → [registry.py](mdc:discovery/io/registry.py)
+  - Output paths → [outputs.py](mdc:discovery/io/outputs.py)
+- Docs → [docs/](mdc:docs/)
+  - Implementation plan → [implementation-plan.md](mdc:docs/implementation-plan.md)
+  - Env example → [env.example](mdc:docs/env.example)
+
+Conventions:
+- Outputs must go under `outputs/<source>/...`.
+- Keep compute (profiling/tests) separate from rendering.
+- Prefer JSON/MD/HTML artifacts over databases in v1.

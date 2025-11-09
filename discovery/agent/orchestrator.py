@@ -122,6 +122,8 @@ def _run_pipeline_single_source(
                     "column": metric["column"],
                     **suggestion,
                 })
+        # Add dimensions (now includes value-specific KPIs)
+        all_kpi_suggestions.extend(result["kpi_suggestions"].get("dimensions", []))
         all_kpi_suggestions.extend(result["kpi_suggestions"].get("composite_kpis", []))
         all_kpi_suggestions.extend(result["kpi_suggestions"].get("trend_kpis", []))
     
@@ -152,6 +154,7 @@ def _run_pipeline_single_source(
         "relationships": relationships,
         "validation_checks": all_validation_checks,
         "kpi_suggestions": all_kpi_suggestions,
+        "all_samples": all_samples,  # Include samples for trend analysis
     }
 
 
@@ -316,6 +319,7 @@ def _run_pipeline(
             "total_columns": len(result["profiles"]),
             "total_issues": len(result["validation_checks"]) + len(result["insights"]),
         },
+        table_samples=result.get("all_samples", {}),
     )
 
 
@@ -375,6 +379,11 @@ def run_multi_source(
     total_columns = len(result["profiles"])
     total_issues = len(result["validation_checks"]) + len(result["insights"])
     
+    # Aggregate table samples from all sources
+    all_table_samples = {}
+    for source_name, source_result in result["source_results"].items():
+        all_table_samples.update(source_result.get("all_samples", {}))
+    
     render_dashboard(
         "Multi-Source Analysis",
         result["profiles"],
@@ -391,4 +400,5 @@ def run_multi_source(
             "total_columns": total_columns,
             "total_issues": total_issues,
         },
+        table_samples=all_table_samples,
     )

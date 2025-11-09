@@ -26,7 +26,7 @@ setup(
     author="Discovery Team",
     packages=find_packages(),
     python_requires=">=3.11",
-    install_requires=requirements,
+    install_requires=requirements + ["graphviz"],
     entry_points={
         "console_scripts": [
             "discovery=discovery.cli.main:main",

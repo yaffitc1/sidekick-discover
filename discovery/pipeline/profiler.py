@@ -5,6 +5,90 @@ import numpy as np
 import pandas as pd
 
 
+def _classify_numeric_type(series: pd.Series, distinct: int, total_rows: int) -> str:
+    """Classify numeric column as 'dimension' or 'measure'.
+    
+    Dimensions are typically:
+    - Low cardinality (< 20% of rows)
+    - Integer values (or very few decimal places)
+    - Used for grouping/filtering
+    
+    Measures are typically:
+    - High cardinality (> 50% of rows)
+    - Continuous values with decimals
+    - Used for aggregation (sum, avg, etc.)
+    
+    Args:
+        series: Numeric pandas Series
+        distinct: Number of distinct values
+        total_rows: Total number of rows
+        
+    Returns:
+        'dimension' or 'measure'
+    """
+    if total_rows == 0 or distinct == 0:
+        return "measure"
+    
+    # Convert to numeric, handling errors
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) == 0:
+        return "measure"
+    
+    # Calculate cardinality ratio
+    cardinality_ratio = distinct / total_rows
+    
+    # Check if values are mostly integers
+    is_integer_dtype = pd.api.types.is_integer_dtype(series)
+    
+    # Check if values have decimal places (for non-integer dtypes)
+    has_decimals = False
+    if not is_integer_dtype:
+        # Sample values to check for decimals
+        sample = s.head(1000)
+        has_decimals = any((sample % 1) != 0)
+    
+    # Check value range characteristics
+    value_range = s.max() - s.min()
+    std_dev = s.std()
+    cv = std_dev / s.mean() if s.mean() != 0 else float('inf')  # Coefficient of variation
+    
+    # Classification logic
+    # Low cardinality (< 20%) suggests dimension
+    if cardinality_ratio < 0.2:
+        # If integer-like and low cardinality, likely dimension
+        if is_integer_dtype or not has_decimals:
+            return "dimension"
+        # Even with decimals, very low cardinality might be dimension (e.g., rating scales)
+        if distinct <= 10:
+            return "dimension"
+    
+    # Very high cardinality (> 80%) strongly suggests measure
+    if cardinality_ratio > 0.8:
+        return "measure"
+    
+    # Medium cardinality: use additional heuristics
+    # Integer columns with medium cardinality could be dimensions (e.g., age, year)
+    if is_integer_dtype and cardinality_ratio < 0.5:
+        # Check if values are sequential/consecutive (common in dimensions)
+        sorted_unique = sorted(s.unique()[:100])  # Sample for performance
+        if len(sorted_unique) > 1:
+            diffs = np.diff(sorted_unique)
+            # If mostly consecutive integers, likely dimension
+            if np.allclose(diffs, 1.0, atol=0.1):
+                return "dimension"
+    
+    # High coefficient of variation suggests measure (wide spread)
+    if cv > 1.0 and cardinality_ratio > 0.3:
+        return "measure"
+    
+    # Default: if high cardinality or has decimals, treat as measure
+    if cardinality_ratio > 0.5 or has_decimals:
+        return "measure"
+    
+    # Default to measure for ambiguous cases
+    return "measure"
+
+
 def _numeric_stats(series: pd.Series) -> Dict[str, Any]:
     """Compute robust numeric summary statistics with quantiles.
 
@@ -53,6 +137,7 @@ def profile_columns(df: pd.DataFrame) -> Dict[str, Any]:
         }
         if pd.api.types.is_numeric_dtype(series) and series.dtype != 'bool':
             col_profile["stats"] = _numeric_stats(series)
+            col_profile["numericType"] = _classify_numeric_type(series, distinct, rows)
         elif pd.api.types.is_datetime64_any_dtype(series):
             col_profile["min"] = str(series.min())
             col_profile["max"] = str(series.max())

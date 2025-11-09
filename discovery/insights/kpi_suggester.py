@@ -9,6 +9,8 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+from discovery.analytics.relationships import detect_foreign_key_patterns
+
 
 def detect_time_series_columns(df: pd.DataFrame) -> List[str]:
     """Detect columns that appear to be time-series (date/datetime).
@@ -26,6 +28,10 @@ def detect_time_series_columns(df: pd.DataFrame) -> List[str]:
 def detect_numeric_metrics(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Detect numeric columns that could be metrics.
     
+    Follows same rules as trend chart generation:
+    - ID/code columns: Use COUNT DISTINCT
+    - Other numeric columns: Use SUM, AVG, COUNT as appropriate
+    
     Returns:
         List of metric suggestions with KPI types
     """
@@ -41,41 +47,55 @@ def detect_numeric_metrics(df: pd.DataFrame) -> List[Dict[str, Any]]:
         
         suggestions = []
         
-        # Check if suitable for sum
-        if series.min() >= 0 and series.max() > 0:
+        # Check if ID/code column - use COUNT DISTINCT
+        if detect_foreign_key_patterns(col):
             suggestions.append({
-                "kpi_type": "sum",
-                "formula": f"SUM({col})",
-                "description": f"Total {col}",
-                "relevance_score": 0.8,
-            })
-        
-        # Check if suitable for average
-        if series.std() > 0:
-            suggestions.append({
-                "kpi_type": "average",
-                "formula": f"AVG({col})",
-                "description": f"Average {col}",
-                "relevance_score": 0.7,
-            })
-        
-        # Check if suitable for count
-        if series.min() >= 0:
-            suggestions.append({
-                "kpi_type": "count",
-                "formula": f"COUNT({col})",
-                "description": f"Count of {col}",
-                "relevance_score": 0.6,
-            })
-        
-        # Check for ratio potential (if values are percentages or proportions)
-        if series.min() >= 0 and series.max() <= 1:
-            suggestions.append({
-                "kpi_type": "percentage",
-                "formula": f"AVG({col}) * 100",
-                "description": f"Average {col} (%)",
+                "kpi_type": "count_distinct",
+                "formula": f"COUNT(DISTINCT {col})",
+                "description": f"Distinct count of {col}",
                 "relevance_score": 0.9,
+                "column": col,
             })
+        else:
+            # Check if suitable for sum
+            if series.min() >= 0 and series.max() > 0:
+                suggestions.append({
+                    "kpi_type": "sum",
+                    "formula": f"SUM({col})",
+                    "description": f"Total {col}",
+                    "relevance_score": 0.8,
+                    "column": col,
+                })
+            
+            # Check if suitable for average
+            if series.std() > 0:
+                suggestions.append({
+                    "kpi_type": "average",
+                    "formula": f"AVG({col})",
+                    "description": f"Average {col}",
+                    "relevance_score": 0.7,
+                    "column": col,
+                })
+            
+            # Check if suitable for count
+            if series.min() >= 0:
+                suggestions.append({
+                    "kpi_type": "count",
+                    "formula": f"COUNT({col})",
+                    "description": f"Count of {col}",
+                    "relevance_score": 0.6,
+                    "column": col,
+                })
+            
+            # Check for ratio potential (if values are percentages or proportions)
+            if series.min() >= 0 and series.max() <= 1:
+                suggestions.append({
+                    "kpi_type": "percentage",
+                    "formula": f"AVG({col}) * 100",
+                    "description": f"Average {col} (%)",
+                    "relevance_score": 0.9,
+                    "column": col,
+                })
         
         if suggestions:
             metrics.append({
@@ -89,8 +109,12 @@ def detect_numeric_metrics(df: pd.DataFrame) -> List[Dict[str, Any]]:
 def detect_categorical_dimensions(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Detect categorical columns suitable for grouping/segmentation.
     
+    Follows same rules as trend chart generation:
+    - For categorical columns (2-100 distinct values), suggest COUNT KPIs
+    - For top/bottom values, suggest COUNT per value
+    
     Returns:
-        List of dimension suggestions
+        List of dimension suggestions with COUNT KPIs for top/bottom values
     """
     dimensions = []
     
@@ -102,14 +126,42 @@ def detect_categorical_dimensions(df: pd.DataFrame) -> List[Dict[str, Any]]:
             nunique = series.nunique()
             total = len(series)
             
-            # Good cardinality for grouping: 2-50 distinct values
-            if 2 <= nunique <= 50:
+            # Good cardinality for grouping: 2-100 distinct values (matching trend chart logic)
+            if 2 <= nunique <= 100:
+                # Get top 5 and bottom 5 values by occurrence
+                value_counts = series.value_counts(dropna=True)
+                top_values = list(value_counts.head(5).items())
+                bottom_values = list(value_counts.tail(5).items())
+                
+                # Combine and deduplicate
+                all_values = list(set(top_values + bottom_values))
+                
+                # Create COUNT KPIs for each value
+                value_kpis = []
+                for value, count in all_values:
+                    value_str = str(value) if pd.notna(value) else "NULL"
+                    value_kpis.append({
+                        "kpi_type": "count",
+                        "formula": f"COUNT({col} = '{value_str}')",
+                        "description": f"Count of '{value_str}' in {col}",
+                        "relevance_score": 0.8 if count > total * 0.1 else 0.6,  # Higher score for common values
+                        "column": col,
+                        "value": value_str,
+                        "total_occurrences": int(count),
+                    })
+                
+                # Add general dimension KPI
                 dimensions.append({
                     "column": col,
                     "cardinality": nunique,
                     "relevance_score": 0.8 if nunique <= 20 else 0.6,
                     "description": f"Group by {col} ({nunique} distinct values)",
+                    "formula": f"COUNT(DISTINCT {col})",
+                    "kpi_type": "count_distinct",
                 })
+                
+                # Add value-specific KPIs
+                dimensions.extend(value_kpis)
     
     return dimensions
 
@@ -243,6 +295,21 @@ def generate_kpi_suggestions(
     
     # Detect simple metrics
     metrics = detect_numeric_metrics(df)
+    
+    # Detect boolean columns and add SUM KPIs (true=1, false=0, null=0)
+    boolean_cols = df.select_dtypes(include=['bool']).columns
+    for col in boolean_cols:
+        metrics.append({
+            "column": col,
+            "suggestions": [{
+                "kpi_type": "sum",
+                "formula": f"SUM({col})",
+                "description": f"Count of {col} (true values)",
+                "relevance_score": 0.7,
+                "column": col,
+            }]
+        })
+    
     kpi_report["simple_metrics"] = metrics
     
     # Detect dimensions
@@ -264,6 +331,9 @@ def generate_kpi_suggestions(
     for metric in metrics:
         for suggestion in metric.get("suggestions", []):
             all_kpis.append(suggestion)
+    
+    # Add dimensions (now includes value-specific KPIs)
+    all_kpis.extend(dimensions)
     
     # Add composite KPIs
     all_kpis.extend(composite_kpis)

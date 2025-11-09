@@ -1,32 +1,48 @@
 from __future__ import annotations
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 import numpy as np
 import pandas as pd
 
 
-def _classify_numeric_type(series: pd.Series, distinct: int, total_rows: int) -> str:
+def _classify_numeric_type(series: pd.Series, distinct: int, total_rows: int, column_name: str = "") -> str:
     """Classify numeric column as 'dimension' or 'measure'.
     
     Dimensions are typically:
     - Low cardinality (< 20% of rows)
     - Integer values (or very few decimal places)
     - Used for grouping/filtering
+    - Column names containing "_id"
     
     Measures are typically:
     - High cardinality (> 50% of rows)
     - Continuous values with decimals
     - Used for aggregation (sum, avg, etc.)
+    - Column names containing "total", "sum", "count"
     
     Args:
         series: Numeric pandas Series
-        distinct: Number of distinct values
+        distinct: Number of distinct values (non-null)
         total_rows: Total number of rows
+        column_name: Column name for pattern matching
         
     Returns:
         'dimension' or 'measure'
     """
-    if total_rows == 0 or distinct == 0:
+    # Check column name patterns first (highest priority)
+    col_lower = column_name.lower()
+    
+    # If column name includes "_id", treat as dimension
+    if "_id" in col_lower:
+        return "dimension"
+    
+    # If column name includes "total", "sum", "count", treat as measure
+    if any(keyword in col_lower for keyword in ["total", "sum", "count"]):
+        return "measure"
+    
+    # Ignore nulls: use non-null rows for cardinality calculation
+    non_null_rows = series.notna().sum()
+    if non_null_rows == 0 or distinct == 0:
         return "measure"
     
     # Convert to numeric, handling errors
@@ -34,8 +50,8 @@ def _classify_numeric_type(series: pd.Series, distinct: int, total_rows: int) ->
     if len(s) == 0:
         return "measure"
     
-    # Calculate cardinality ratio
-    cardinality_ratio = distinct / total_rows
+    # Calculate cardinality ratio using non-null rows (ignore nulls)
+    cardinality_ratio = distinct / non_null_rows
     
     # Check if values are mostly integers
     is_integer_dtype = pd.api.types.is_integer_dtype(series)
@@ -120,8 +136,46 @@ def _numeric_stats(series: pd.Series) -> Dict[str, Any]:
     }
 
 
+def _get_aggregation_hints(column_name: str) -> List[str]:
+    """Get aggregation hints based on column name patterns.
+    
+    Args:
+        column_name: Column name to analyze
+        
+    Returns:
+        List of suggested aggregation functions
+    """
+    col_lower = column_name.lower()
+    hints = []
+    
+    # Check for count-related patterns
+    if "count" in col_lower:
+        hints.append("count")
+        hints.append("count_distinct")  # Always add count_distinct when count is present
+    
+    # Check for sum-related patterns
+    if "sum" in col_lower or "total" in col_lower:
+        hints.append("sum")
+    
+    # Check for average-related patterns
+    if "avg" in col_lower or "average" in col_lower or "mean" in col_lower:
+        hints.append("avg")
+    
+    # Check for min/max patterns
+    if "min" in col_lower:
+        hints.append("min")
+    if "max" in col_lower:
+        hints.append("max")
+    
+    return hints if hints else []
+
+
 def profile_columns(df: pd.DataFrame) -> Dict[str, Any]:
-    """Profile each column: dtype, null rate, distinct count, and type-specific stats."""
+    """Profile each column: dtype, null rate, distinct count, and type-specific stats.
+    
+    Ignores nulls when calculating cardinality ratios.
+    Uses column name patterns to determine numeric type and aggregation hints.
+    """
     rows = len(df)
     profiles: Dict[str, Any] = {}
     for col in df.columns:
@@ -137,7 +191,12 @@ def profile_columns(df: pd.DataFrame) -> Dict[str, Any]:
         }
         if pd.api.types.is_numeric_dtype(series) and series.dtype != 'bool':
             col_profile["stats"] = _numeric_stats(series)
-            col_profile["numericType"] = _classify_numeric_type(series, distinct, rows)
+            # Pass column name for pattern matching
+            col_profile["numericType"] = _classify_numeric_type(series, distinct, rows, column_name=col)
+            # Add aggregation hints based on column name
+            aggregation_hints = _get_aggregation_hints(col)
+            if aggregation_hints:
+                col_profile["aggregationHints"] = aggregation_hints
         elif pd.api.types.is_datetime64_any_dtype(series):
             col_profile["min"] = str(series.min())
             col_profile["max"] = str(series.max())
